@@ -13,6 +13,19 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then(registration => {
+        console.log(`Service Worker registered! Scope: ${registration.scope}`);
+      })
+      .catch(err => {
+        console.log(`Service Worker registration failed: ${err}`);
+      });
+  });
+}
+
 const container = document.getElementById('container');
 const offlineMessage = document.getElementById('offline');
 const noDataMessage = document.getElementById('no-data');
@@ -24,7 +37,9 @@ addEventButton.addEventListener('click', addAndPostEvent);
 
 Notification.requestPermission();
 
-// TODO - create indexedDB database
+
+// create indexedDB database
+const dbPromise = createIndexedDB();
 
 loadContentNetworkFirst();
 
@@ -32,8 +47,25 @@ function loadContentNetworkFirst() {
   getServerData()
   .then(dataFromNetwork => {
     updateUI(dataFromNetwork);
+    saveEventDataLocally(dataFromNetwork)
+    .then(() => {
+      setLastUpdated(new Date());
+      messageDataSaved();
+    }).catch(err => {
+      messageSaveError(); 
+      console.warn(err);
+    });
   }).catch(err => { // if we can't connect to the server...
     console.log('Network requests have failed, this is expected if offline');
+    getLocalEventData()
+    .then(offlineData => {
+      if (!offlineData.length) {
+        messageNoData();
+      } else {
+        messageOffline();
+        updateUI(offlineData);
+      }
+    });
   });
 }
 
@@ -58,9 +90,7 @@ function addAndPostEvent(e) {
     note: document.getElementById('note').value
   };
   updateUI([data]);
-
-  // TODO - save event data locally
-
+  saveEventDataLocally([data]);
   const headers = new Headers({'Content-Type': 'application/json'});
   const body = JSON.stringify(data);
   return fetch('api/add', {
@@ -121,4 +151,37 @@ function getLastUpdated() {
 
 function setLastUpdated(date) {
   localStorage.setItem('lastUpdated', date);
+}
+
+function createIndexedDB() {
+  if (!('indexedDB' in window)) {return null;}
+  return idb.open('dashboardr', 1, function(upgradeDb) {
+    if (!upgradeDb.objectStoreNames.contains('events')) {
+      const eventsOS = upgradeDb.createObjectStore('events', {keyPath: 'id'});
+    }
+  });
+}
+
+// Save event data in indexedDB
+function saveEventDataLocally(events) {
+  if (!('indexedDB' in window)) {return null;}
+  return dbPromise.then(db => {
+    const tx = db.transaction('events', 'readwrite');
+    const store = tx.objectStore('events');
+    return Promise.all(events.map(event => store.put(event)))
+    .catch(() => {
+      tx.abort();
+      throw Error('Events were not added to the store');
+    });
+  });
+}
+
+// get local data from indexedDB
+function getLocalEventData() {
+  if (!('indexedDB' in window)) {return null;}
+  return dbPromise.then(db => {
+    const tx = db.transaction('events', 'readonly');
+    const store = tx.objectStore('events');
+    return store.getAll();
+  })
 }

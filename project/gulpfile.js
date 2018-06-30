@@ -18,6 +18,7 @@ limitations under the License.
 const gulp = require('gulp');
 const del = require('del');
 const runSequence = require('run-sequence');
+const workboxBuild = require('workbox-build');
 
 // this task removes old files
 gulp.task('clean', () => del(['.tmp', 'build/*', '!build/.git'], {dot: true}));
@@ -33,6 +34,7 @@ gulp.task('copy', () =>
 gulp.task('default', ['clean'], cb => {
   runSequence(
     'copy',
+    'service-worker',
     cb
   );
 });
@@ -40,4 +42,23 @@ gulp.task('default', ['clean'], cb => {
 // this task watches our "app" files & rebuilds whenever they change
 gulp.task('watch', function() {
   gulp.watch('app/**/*', ['default']);
+});
+
+// generate the service worker
+gulp.task('service-worker', () => {
+  return workboxBuild.injectManifest({
+    swSrc: 'app/sw.js',
+    swDest: 'build/sw.js',
+    globDirectory: 'build',
+    globPatterns: [
+      'style/main.css',
+      'index.html',
+      'js/idb-promised.js',
+      'js/main.js',
+      'images/**/*.*',
+      'manifest.json'
+    ]
+  }).catch(err => {
+    console.log('[ERROR]: ' + err);
+  });
 });
